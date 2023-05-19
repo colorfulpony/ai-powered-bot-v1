@@ -1,0 +1,96 @@
+import os
+import openai
+import time
+import sys
+import traceback
+import random
+from dotenv import load_dotenv
+
+# Load variables from .env file
+load_dotenv()
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+def retry_with_exponential_backoff(
+    func,
+    initial_delay: float = 1,
+    exponential_base: float = 2,
+    jitter: bool = True,
+    max_retries: int = 10,
+    errors: tuple = (openai.error.RateLimitError,),
+):
+    """Retry a function with exponential backoff."""
+ 
+    def wrapper(*args, **kwargs):
+        # Initialize variables
+        num_retries = 0
+        delay = initial_delay
+ 
+        # Loop until a successful response or max_retries is hit or an exception is raised
+        while True:
+            try:
+                return func(*args, **kwargs)
+ 
+            # Retry on specific errors
+            except errors as e:
+                # Increment retries
+                num_retries += 1
+ 
+                # Check if max retries has been reached
+                if num_retries > max_retries:
+                    raise Exception(
+                        f"Maximum number of retries ({max_retries}) exceeded."
+                    )
+ 
+                # Increment the delay
+                delay *= exponential_base * (1 + jitter * random.random())
+ 
+                # Sleep for the delay
+                time.sleep(delay)
+ 
+            # Raise exceptions for any errors not specified
+            except Exception as e:
+                raise e
+ 
+    return wrapper
+
+
+# @retry_with_exponential_backoff
+def get_solution_of_portfolio_company(text):
+    context = """You are a very good analyst of startups. 
+    Answer the task based on the context below. Keep the answer only in the format I have written below and not in any other format. Just write "-" and nothing else if you not sure about the answer or if there is no info about it at all. If the text describes some error - just write "-" Don't ask questions.
+Task: Analyze the context given to you at the very end and find out what user problems this startup is solving. Describe it briefly, clearly and simply. You can use the Internet to search, but use it very carefully to avoid any mistakes or inaccurate information. 5 sentences.
+
+Example answer format:
+Startup aims to solve the problem of maintaining a healthy and beautiful garden for people who lack the time, knowledge, or resources to do it themselves. It provide a subscription-based service that offers regular visits from their trained gardeners who take care of all the necessary tasks such as watering, fertilizing, pruning, and pest control. They also use eco-friendly and sustainable practices to ensure a safe and healthy environment for both the plants and the customers. Their goal is to make gardening effortless and enjoyable for everyone, regardless of their experience level or busy schedules."""
+
+    prompt_template = """Context: {}"""
+
+    # Split text into smaller chunks with a maximum length of 4096 tokens
+    text_chunks = [text[i:i+4096] for i in range(0, len(text), 4096)]
+
+    # Initialize the messages list with the context
+    messages = [{"role": "system", "content": context}]
+
+    # Loop through the text chunks and generate prompts for each one
+    for i, chunk in enumerate(text_chunks):
+
+        prompt = prompt_template.format(chunk)
+
+        messages.append({"role": "user", "content": prompt})
+
+        completion = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=messages
+        )
+
+        chat_response = completion.choices[0].message.content
+
+        # Only include the answer from the last chunk
+        if i == len(text_chunks) - 1:
+            messages.append({"role": "system", "content": chat_response})
+        return chat_response
+    if chat_response.startswith('-') or chat_response.startswith("-"):
+        chat_response = '-'
+    return chat_response
+        
